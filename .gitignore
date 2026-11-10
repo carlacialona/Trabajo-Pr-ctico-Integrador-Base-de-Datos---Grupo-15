@@ -1,0 +1,14 @@
+# Secretos
+.env
+*.env
+!.env.example
+
+# Dependencias y artefactos
+node_modules/
+__pycache__/
+*.pyc
+
+# Volcados de la base (pueden pesar mucho; se generan con db/scripts)
+*.sql.gz
+*.dump
+backups/

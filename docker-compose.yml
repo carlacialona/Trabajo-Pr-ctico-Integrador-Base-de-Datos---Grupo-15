@@ -1,0 +1,84 @@
+# =====================================================================
+# docker-compose.yml · Levanta todo el sistema con un solo comando:
+#
+#   docker compose up --build
+#
+#   db     PostgreSQL 16. Al crearse por primera vez aplica db/migrations/
+#          en orden y asigna las contraseñas de los roles desde .env.
+#   seed   Carga masiva reproducible (una sola vez: si la base ya tiene
+#          datos, no hace nada).
+#   api    API REST (Node + pg). Se conecta con el rol bodegas_api.
+#   front  Front estático (nginx) que consume la API.
+#
+# Las contraseñas salen del archivo .env (copiar .env.example a .env).
+# =====================================================================
+name: bodegas-del-atuel
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-bodegas}
+      POSTGRES_USER: ${POSTGRES_USER:-bodegas_owner}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD en .env}
+      API_DB_PASSWORD: ${API_DB_PASSWORD:?Falta API_DB_PASSWORD en .env}
+      LECTURA_DB_PASSWORD: ${LECTURA_DB_PASSWORD:?Falta LECTURA_DB_PASSWORD en .env}
+      TZ: America/Argentina/Buenos_Aires
+      PGTZ: America/Argentina/Buenos_Aires
+    volumes:
+      - ./db/migrations:/migrations:ro
+      - ./db/docker-init:/docker-entrypoint-initdb.d:ro
+      - datos_pg:/var/lib/postgresql/data
+    ports:
+      # Solo accesible desde la propia máquina (no expuesto a la red).
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    healthcheck:
+      # -h 127.0.0.1: durante la inicialización el servidor no escucha por
+      # TCP, así que recién da "sano" cuando terminaron las migraciones.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 3s
+      retries: 60
+
+  seed:
+    build: ./db/seed
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-bodegas_owner}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-bodegas}
+      SEMILLA: ${SEMILLA:-2026}
+      ESCALA: ${SEED_ESCALA:-1}
+      TZ: America/Argentina/Buenos_Aires
+    command: ["python", "cargar_datos.py", "--si-vacia"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: ./api
+    environment:
+      DATABASE_URL: postgresql://bodegas_api:${API_DB_PASSWORD}@db:5432/${POSTGRES_DB:-bodegas}
+      PORT: 3000
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      TZ: America/Argentina/Buenos_Aires
+    ports:
+      - "${API_PORT:-3000}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  front:
+    build: ./front
+    environment:
+      # URL de la API tal como la ve el NAVEGADOR (no el contenedor).
+      API_URL: ${API_URL:-http://localhost:3000}
+    ports:
+      - "${FRONT_PORT:-8080}:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  datos_pg:

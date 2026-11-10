@@ -1,0 +1,6 @@
+# Los scripts de shell deben tener fin de línea LF aunque se clone en Windows:
+# si no, el contenedor de PostgreSQL falla con "/bin/sh^M: bad interpreter".
+*.sh   text eol=lf
+*.sql  text eol=lf
+*.py   text eol=lf
+*.yml  text eol=lf
