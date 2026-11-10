@@ -1,0 +1,498 @@
+openapi: 3.0.3
+info:
+  title: API Bodegas del Atuel
+  version: 1.0.0
+  description: |
+    API REST del TPI de Bases de Datos (UTN FRSR).
+
+    * Acceso a datos con SQL directo y parametrizado (driver `pg`, sin ORM).
+    * La API **no recalcula** totales, descuentos ni stock: eso lo hacen los
+      triggers, funciones y procedimientos de la base.
+    * Los errores de la base se traducen a HTTP según su SQLSTATE:
+
+    | Situación | SQLSTATE | HTTP |
+    | --- | --- | --- |
+    | UNIQUE violado | 23505 | 409 |
+    | FK: dato relacionado inexistente | 23503 | 422 |
+    | FK: se intenta borrar algo con dependientes | 23503 | 409 |
+    | CHECK / NOT NULL violado | 23514 / 23502 | 422 |
+    | Regla de negocio (trigger o procedimiento) | P0001 | 409 |
+    | Documento inexistente al procesar | P0002 | 404 |
+    | Formato inválido (enum, número, fecha) | 22P02 / 22007 | 400 |
+    | Serialización o deadlock | 40001 / 40P01 | 503 (con `Retry-After`) |
+servers:
+  - url: http://localhost:3000
+    description: Local (Docker Compose)
+tags:
+  - name: Salud
+  - name: Catálogos
+  - name: Vinos
+  - name: Clientes
+  - name: Comprobantes
+  - name: Transferencias
+  - name: Ingresos
+  - name: Reportes
+
+components:
+  parameters:
+    pagina: { name: pagina, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+    tamanio: { name: tamanio, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+    nro: { name: nro, in: path, required: true, schema: { type: integer } }
+    cod: { name: cod, in: path, required: true, schema: { type: integer } }
+    id: { name: id, in: path, required: true, schema: { type: integer } }
+    estado:
+      name: estado
+      in: query
+      schema: { type: string, enum: [en_confeccion, terminado, procesado] }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            mensaje: { type: string, example: 'RN-09: stock insuficiente del vino 12 en la sala 1 (disponible 2, pedido 5)' }
+            sqlstate: { type: string, example: P0001 }
+            regla: { type: string, example: RN-09 }
+            restriccion: { type: string, example: ck_vino_precio }
+            detalle: { type: string }
+    Renglon:
+      type: object
+      required: [cod_vino, cantidad]
+      properties:
+        cod_vino: { type: integer, example: 1 }
+        cantidad: { type: integer, minimum: 1, example: 2 }
+    VinoEntrada:
+      type: object
+      required: [nombre, tipo, anada, volumen_ml, graduacion, precio, cuit_bodega, composicion]
+      properties:
+        nombre: { type: string, example: Malbec Reserva }
+        tipo: { type: string, enum: [tinto, blanco, rosado, espumante] }
+        anada: { type: integer, example: 2023 }
+        volumen_ml: { type: integer, enum: [187, 375, 750, 1500, 3000] }
+        graduacion: { type: number, example: 14 }
+        precio: { type: number, example: 12500 }
+        cuit_bodega: { type: string, example: '30679430722' }
+        composicion:
+          type: array
+          description: Los porcentajes deben sumar 100 (RN-05, se verifica al confirmar la transacción).
+          items:
+            type: object
+            properties:
+              id_cepa: { type: integer }
+              porcentaje: { type: number }
+          example: [{ id_cepa: 1, porcentaje: 85 }, { id_cepa: 2, porcentaje: 15 }]
+        maridajes: { type: array, items: { type: integer }, example: [1, 2] }
+    Vino:
+      type: object
+      properties:
+        cod_vino: { type: integer }
+        nombre: { type: string }
+        tipo: { type: string }
+        anada: { type: integer }
+        volumen_ml: { type: integer }
+        graduacion: { type: string }
+        precio: { type: string, description: NUMERIC devuelto como texto para no perder precisión }
+        bodega: { type: string }
+        stock_deposito: { type: integer }
+        stock_salas: { type: integer }
+        stock_total: { type: integer }
+        composicion: { type: array, items: { type: object } }
+        maridajes: { type: array, items: { type: object } }
+        stock_por_sala: { type: array, items: { type: object } }
+    ClienteEntrada:
+      type: object
+      required: [tipo, nombre, tipo_doc, nro_doc, direccion, id_localidad]
+      properties:
+        tipo: { type: string, enum: [socio, distribuidor, exportador] }
+        nombre: { type: string, example: 'Pérez, Ana' }
+        tipo_doc: { type: string, enum: [DNI, CUIT, PASAPORTE] }
+        nro_doc: { type: string, example: '30111222' }
+        direccion: { type: string }
+        id_localidad: { type: integer }
+        descuento: { type: number, description: 'Opcional. Si no se envía, la base pone 10/20/30 según el tipo (RN-06).' }
+        zona_cobertura: { type: string, description: Solo distribuidores }
+        nro_habilitacion: { type: string, description: Solo distribuidores }
+        pais_destino: { type: string, description: Solo exportadores }
+        permisos:
+          type: array
+          description: Solo exportadores
+          items:
+            type: object
+            properties:
+              cod_permiso: { type: string }
+              fecha_emision: { type: string, format: date }
+              fecha_vencimiento: { type: string, format: date }
+    Comprobante:
+      type: object
+      properties:
+        nro_comprobante: { type: integer }
+        fecha: { type: string, format: date }
+        cliente: { type: string }
+        id_sala: { type: integer }
+        subtotal: { type: string }
+        descuento: { type: string }
+        total: { type: string }
+        renglones: { type: array, items: { type: object } }
+    Documento:
+      type: object
+      properties:
+        numero: { type: integer }
+        fecha: { type: string, format: date }
+        estado: { type: string, enum: [en_confeccion, terminado, procesado] }
+        renglones: { type: array, items: { type: object } }
+  responses:
+    ErrorRegla:
+      description: Regla de negocio rechazada por la base (P0001) o conflicto de clave
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    ErrorValidacion:
+      description: CHECK, NOT NULL o FK inexistente
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    NoEncontrado:
+      description: No existe
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+paths:
+  /salud:
+    get:
+      tags: [Salud]
+      summary: Verifica que la API llega a la base (muestra el rol con el que se conecta)
+      responses:
+        '200': { description: OK }
+  /catalogos:
+    get:
+      tags: [Catálogos]
+      summary: Bodegas, cepas, maridajes, salas, transportistas y localidades para los formularios
+      responses:
+        '200': { description: OK }
+
+  /vinos:
+    get:
+      tags: [Vinos]
+      summary: Catálogo con filtros y paginación
+      parameters:
+        - { name: tipo, in: query, schema: { type: string, enum: [tinto, blanco, rosado, espumante] } }
+        - { name: cepa, in: query, description: id_cepa, schema: { type: integer } }
+        - { name: bodega, in: query, description: CUIT de la bodega, schema: { type: string } }
+        - { name: anada, in: query, schema: { type: integer } }
+        - { name: q, in: query, description: Texto a buscar en el nombre, schema: { type: string } }
+        - { name: sala, in: query, description: 'Solo vinos con stock en esa sala (devuelve stock_en_sala)', schema: { type: integer } }
+        - $ref: '#/components/parameters/pagina'
+        - $ref: '#/components/parameters/tamanio'
+      responses:
+        '200': { description: 'Página de resultados: { datos, pagina, tamanio, total }' }
+    post:
+      tags: [Vinos]
+      summary: Alta de un vino con su composición y maridajes (una transacción)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/VinoEntrada' } } }
+      responses:
+        '201': { description: Creado, content: { application/json: { schema: { $ref: '#/components/schemas/Vino' } } } }
+        '409': { $ref: '#/components/responses/ErrorRegla' }
+        '422': { $ref: '#/components/responses/ErrorValidacion' }
+  /vinos/{cod}:
+    parameters: [{ $ref: '#/components/parameters/cod' }]
+    get:
+      tags: [Vinos]
+      summary: Detalle con cepas, porcentajes, maridajes y stock
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Vino' } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    put:
+      tags: [Vinos]
+      summary: Modificación (un cambio de precio queda auditado, RN-13)
+      requestBody:
+        content: { application/json: { schema: { $ref: '#/components/schemas/VinoEntrada' } } }
+      responses:
+        '200': { description: OK }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/ErrorRegla' }
+        '422': { $ref: '#/components/responses/ErrorValidacion' }
+    delete:
+      tags: [Vinos]
+      summary: Baja (rechazada si tiene movimientos, RN-14)
+      responses:
+        '204': { description: Borrado }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/ErrorRegla' }
+  /vinos/{cod}/precios:
+    parameters: [{ $ref: '#/components/parameters/cod' }]
+    get:
+      tags: [Vinos]
+      summary: Historial de cambios de precio (auditoría RN-13)
+      responses:
+        '200': { description: OK }
+
+  /clientes:
+    get:
+      tags: [Clientes]
+      summary: Listado de clientes con datos del subtipo
+      parameters:
+        - { name: tipo, in: query, schema: { type: string, enum: [socio, distribuidor, exportador] } }
+        - { name: q, in: query, schema: { type: string } }
+        - $ref: '#/components/parameters/pagina'
+        - $ref: '#/components/parameters/tamanio'
+      responses:
+        '200': { description: OK }
+    post:
+      tags: [Clientes]
+      summary: Alta de cliente y su subtipo (una transacción)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ClienteEntrada' } } }
+      responses:
+        '201': { description: Creado }
+        '409': { $ref: '#/components/responses/ErrorRegla' }
+        '422': { $ref: '#/components/responses/ErrorValidacion' }
+  /clientes/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get:
+      tags: [Clientes]
+      summary: Detalle (con permisos si es exportador)
+      responses:
+        '200': { description: OK }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    put:
+      tags: [Clientes]
+      summary: Modificación (el tipo no se cambia)
+      requestBody:
+        content: { application/json: { schema: { $ref: '#/components/schemas/ClienteEntrada' } } }
+      responses:
+        '200': { description: OK }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '422': { $ref: '#/components/responses/ErrorValidacion' }
+    delete:
+      tags: [Clientes]
+      summary: Baja (rechazada si tiene compras)
+      responses:
+        '204': { description: Borrado }
+        '409': { $ref: '#/components/responses/ErrorRegla' }
+
+  /comprobantes:
+    get:
+      tags: [Comprobantes]
+      summary: Últimos comprobantes
+      parameters:
+        - { name: sala, in: query, schema: { type: integer } }
+        - { name: cliente, in: query, schema: { type: integer } }
+        - $ref: '#/components/parameters/pagina'
+        - $ref: '#/components/parameters/tamanio'
+      responses:
+        '200': { description: OK }
+    post:
+      tags: [Comprobantes]
+      summary: Registra una venta completa (cabecera y renglones) en una sola transacción
+      description: |
+        Solo se envían cliente, sala, vinos y cantidades. Los triggers validan el
+        stock (RN-09), completan precio y descuento, descuentan el stock y
+        calculan los totales (RN-08). Si un renglón falla, no queda nada guardado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id_cliente, id_sala, renglones]
+              properties:
+                id_cliente: { type: integer, example: 1 }
+                id_sala: { type: integer, example: 1 }
+                renglones: { type: array, items: { $ref: '#/components/schemas/Renglon' } }
+      responses:
+        '201': { description: Venta registrada, content: { application/json: { schema: { $ref: '#/components/schemas/Comprobante' } } } }
+        '409': { $ref: '#/components/responses/ErrorRegla' }
+        '422': { $ref: '#/components/responses/ErrorValidacion' }
+  /comprobantes/{nro}:
+    parameters: [{ $ref: '#/components/parameters/nro' }]
+    get:
+      tags: [Comprobantes]
+      summary: Comprobante con sus renglones
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Comprobante' } } } }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
+  /transferencias:
+    get:
+      tags: [Transferencias]
+      summary: Listado
+      parameters:
+        - $ref: '#/components/parameters/estado'
+        - { name: sala, in: query, schema: { type: integer } }
+        - $ref: '#/components/parameters/pagina'
+        - $ref: '#/components/parameters/tamanio'
+      responses:
+        '200': { description: OK }
+    post:
+      tags: [Transferencias]
+      summary: Alta en confección (la fecha la pone la base, RN-11)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id_sala]
+              properties:
+                id_sala: { type: integer }
+                renglones: { type: array, items: { $ref: '#/components/schemas/Renglon' } }
+      responses:
+        '201': { description: Creada, content: { application/json: { schema: { $ref: '#/components/schemas/Documento' } } } }
+        '422': { $ref: '#/components/responses/ErrorValidacion' }
+  /transferencias/{nro}:
+    parameters: [{ $ref: '#/components/parameters/nro' }]
+    get:
+      tags: [Transferencias]
+      summary: Detalle con renglones
+      responses:
+        '200': { description: OK }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+  /transferencias/{nro}/renglones:
+    parameters: [{ $ref: '#/components/parameters/nro' }]
+    post:
+      tags: [Transferencias]
+      summary: Agrega un renglón o cambia su cantidad (solo en confección, RN-12)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/Renglon' } } }
+      responses:
+        '201': { description: OK }
+        '409': { $ref: '#/components/responses/ErrorRegla' }
+  /transferencias/{nro}/renglones/{cod}:
+    parameters: [{ $ref: '#/components/parameters/nro' }, { $ref: '#/components/parameters/cod' }]
+    delete:
+      tags: [Transferencias]
+      summary: Quita un renglón (solo en confección, RN-12)
+      responses:
+        '200': { description: OK }
+        '409': { $ref: '#/components/responses/ErrorRegla' }
+  /transferencias/{nro}/terminar:
+    parameters: [{ $ref: '#/components/parameters/nro' }]
+    post:
+      tags: [Transferencias]
+      summary: en_confeccion -> terminado
+      responses:
+        '200': { description: OK }
+        '409': { $ref: '#/components/responses/ErrorRegla' }
+  /transferencias/{nro}/procesar:
+    parameters: [{ $ref: '#/components/parameters/nro' }]
+    post:
+      tags: [Transferencias]
+      summary: terminado -> procesado (CALL sp_procesar_transferencia; mueve el stock)
+      responses:
+        '200': { description: OK }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/ErrorRegla' }
+
+  /ingresos:
+    get:
+      tags: [Ingresos]
+      summary: Listado
+      parameters:
+        - $ref: '#/components/parameters/estado'
+        - $ref: '#/components/parameters/pagina'
+        - $ref: '#/components/parameters/tamanio'
+      responses:
+        '200': { description: OK }
+    post:
+      tags: [Ingresos]
+      summary: Alta en confección
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cod_transporte, cuit_bodega]
+              properties:
+                cod_transporte: { type: integer }
+                cuit_bodega: { type: string }
+                renglones: { type: array, items: { $ref: '#/components/schemas/Renglon' } }
+      responses:
+        '201': { description: Creado }
+        '422': { $ref: '#/components/responses/ErrorValidacion' }
+  /ingresos/{nro}:
+    parameters: [{ $ref: '#/components/parameters/nro' }]
+    get:
+      tags: [Ingresos]
+      summary: Detalle con renglones
+      responses:
+        '200': { description: OK }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+  /ingresos/{nro}/renglones:
+    parameters: [{ $ref: '#/components/parameters/nro' }]
+    post:
+      tags: [Ingresos]
+      summary: Agrega un renglón o cambia su cantidad (solo en confección, RN-12)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/Renglon' } } }
+      responses:
+        '201': { description: OK }
+        '409': { $ref: '#/components/responses/ErrorRegla' }
+  /ingresos/{nro}/renglones/{cod}:
+    parameters: [{ $ref: '#/components/parameters/nro' }, { $ref: '#/components/parameters/cod' }]
+    delete:
+      tags: [Ingresos]
+      summary: Quita un renglón (solo en confección, RN-12)
+      responses:
+        '200': { description: OK }
+        '409': { $ref: '#/components/responses/ErrorRegla' }
+  /ingresos/{nro}/terminar:
+    parameters: [{ $ref: '#/components/parameters/nro' }]
+    post:
+      tags: [Ingresos]
+      summary: en_confeccion -> terminado
+      responses:
+        '200': { description: OK }
+        '409': { $ref: '#/components/responses/ErrorRegla' }
+  /ingresos/{nro}/procesar:
+    parameters: [{ $ref: '#/components/parameters/nro' }]
+    post:
+      tags: [Ingresos]
+      summary: terminado -> procesado (CALL sp_procesar_ingreso; suma al depósito)
+      responses:
+        '200': { description: OK }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+        '409': { $ref: '#/components/responses/ErrorRegla' }
+
+  /reportes/top-vinos:
+    get:
+      tags: [Reportes]
+      summary: S1 · Ranking de vinos por botellas vendidas
+      parameters: [{ name: limite, in: query, schema: { type: integer, default: 10 } }]
+      responses: { '200': { description: OK } }
+  /reportes/ventas-por-sala:
+    get:
+      tags: [Reportes]
+      summary: S8 · Monto de ventas por sala en el último trimestre
+      responses: { '200': { description: OK } }
+  /reportes/vinos-sin-stock:
+    get:
+      tags: [Reportes]
+      summary: S6 · Vinos sin stock en la sala pero con stock en el depósito
+      parameters: [{ name: sala, in: query, required: true, schema: { type: integer } }]
+      responses: { '200': { description: OK } }
+  /reportes/transportista-activo:
+    get:
+      tags: [Reportes]
+      summary: S7 · Transportista con mayor actividad en el último mes
+      responses: { '200': { description: OK } }
+  /reportes/trazabilidad/{cod}:
+    parameters: [{ $ref: '#/components/parameters/cod' }]
+    get:
+      tags: [Reportes]
+      summary: Ficha del vino (S9) + ingresos, transferencias y ventas por sala
+      responses:
+        '200': { description: OK }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+  /reportes/ventas-mensuales:
+    get:
+      tags: [Reportes]
+      summary: Ventas mensuales y acumuladas por sala (vista materializada)
+      parameters: [{ name: sala, in: query, schema: { type: integer } }]
+      responses: { '200': { description: OK } }
+  /reportes/documentos-pendientes:
+    get:
+      tags: [Reportes]
+      summary: Ingresos y transferencias no procesados (vista)
+      responses: { '200': { description: OK } }
