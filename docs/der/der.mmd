@@ -1,0 +1,235 @@
+---
+title: Bodegas del Atuel · Diagrama Entidad-Relación
+config:
+  er:
+    layoutDirection: TB
+---
+erDiagram
+    PROVINCIA ||--|{ DEPARTAMENTO : "tiene"
+    DEPARTAMENTO ||--|{ LOCALIDAD : "tiene"
+    DEPARTAMENTO ||--o{ FINCA : "ubica"
+    LOCALIDAD ||--o{ SALA_VENTA : "tiene"
+    LOCALIDAD ||--o{ CLIENTE : "domicilio de"
+    SALA_VENTA ||--|{ EMPLEADO : "emplea"
+    FINCA ||--|{ PARCELA : "se divide en (débil)"
+    CEPA ||--o{ PARCELA : "plantada en"
+    PARCELA ||--o{ LOTE_UVA : "cosecha (1 por campaña)"
+    LOTE_UVA ||--|{ ANALISIS_CALIDAD : "se analiza"
+    BODEGA ||--o{ LOTE_UVA : "recibe"
+    BODEGA ||--o{ VINO : "elabora"
+    VINO ||--|{ COMPOSICION : "se compone de"
+    CEPA ||--o{ COMPOSICION : "interviene en"
+    VINO ||--|{ VINO_MARIDAJE : "se recomienda con"
+    MARIDAJE ||--o{ VINO_MARIDAJE : "acompaña"
+    CLIENTE ||--o| DISTRIBUIDOR : "es un (subtipo)"
+    CLIENTE ||--o| EXPORTADOR : "es un (subtipo)"
+    EXPORTADOR ||--o{ PERMISO_EXPORTACION : "tiene"
+    CLIENTE ||--o{ COMPROBANTE : "compra"
+    SALA_VENTA ||--o{ COMPROBANTE : "emite"
+    COMPROBANTE ||--|{ RENGLON_COMPROBANTE : "contiene"
+    VINO ||--o{ RENGLON_COMPROBANTE : "se vende en"
+    TRANSPORTISTA ||--o{ TRANSPORTISTA_LOCALIDAD : "cubre"
+    LOCALIDAD ||--o{ TRANSPORTISTA_LOCALIDAD : "es cubierta por"
+    TRANSPORTISTA ||--o{ INGRESO : "traslada"
+    BODEGA ||--o{ INGRESO : "origina"
+    INGRESO ||--o{ RENGLON_INGRESO : "contiene"
+    VINO ||--o{ RENGLON_INGRESO : "ingresa en"
+    SALA_VENTA ||--o{ TRANSFERENCIA : "solicita"
+    TRANSFERENCIA ||--o{ RENGLON_TRANSFERENCIA : "contiene"
+    VINO ||--o{ RENGLON_TRANSFERENCIA : "se transfiere en"
+    SALA_VENTA ||--o{ STOCK_SALA : "tiene"
+    VINO ||--o{ STOCK_SALA : "en stock en"
+    VINO ||--|| STOCK_DEPOSITO : "stock central"
+    VINO ||--o{ AUDITORIA_PRECIO : "registra cambios"
+
+    PROVINCIA {
+        smallint id_provincia PK
+        varchar nombre UK
+    }
+    DEPARTAMENTO {
+        int id_departamento PK
+        varchar nombre "UK con provincia"
+        smallint id_provincia FK
+    }
+    LOCALIDAD {
+        int id_localidad PK
+        varchar nombre "UK con departamento"
+        varchar codigo_postal "no es clave"
+        int id_departamento FK
+        varchar encargado_regional "depende de la localidad (RN-02)"
+    }
+    SALA_VENTA {
+        int id_sala PK
+        varchar calle
+        int numero
+        enum dia_cierre
+        int id_localidad FK
+    }
+    EMPLEADO {
+        cuit cuit PK
+        varchar nombre
+        date fecha_ingreso
+        numeric salario
+        int id_sala FK "NOT NULL (RN-03)"
+    }
+    FINCA {
+        int id_finca PK
+        varchar nombre
+        numeric superficie_ha
+        int id_departamento FK
+    }
+    PARCELA {
+        int id_finca PK,FK
+        smallint nro_parcela PK
+        numeric superficie_ha
+        smallint anio_plantacion
+        smallint id_cepa FK "una sola cepa (RN-04)"
+    }
+    CEPA {
+        smallint id_cepa PK
+        varchar nombre UK
+        enum tipo "tinta o blanca"
+    }
+    LOTE_UVA {
+        int nro_lote PK
+        int id_finca FK "UK con parcela y campaña (RN-04)"
+        smallint nro_parcela FK
+        smallint campania
+        date fecha_cosecha
+        numeric kilos
+        cuit cuit_bodega FK
+    }
+    ANALISIS_CALIDAD {
+        int id_analisis PK
+        int nro_lote FK
+        date fecha
+        numeric brix
+        numeric ph
+        numeric acidez_total
+    }
+    BODEGA {
+        cuit cuit PK
+        varchar razon_social UK
+        varchar domicilio
+    }
+    VINO {
+        int cod_vino PK
+        varchar nombre "UK con añada y volumen"
+        enum tipo
+        smallint anada
+        smallint volumen_ml
+        numeric graduacion "5 a 20"
+        numeric precio "mayor que 0 (RN-01)"
+        cuit cuit_bodega FK
+    }
+    COMPOSICION {
+        int cod_vino PK,FK
+        smallint id_cepa PK,FK
+        numeric porcentaje "suman 100 (RN-05)"
+    }
+    MARIDAJE {
+        smallint id_maridaje PK
+        varchar nombre UK
+        numeric temperatura_servicio
+    }
+    VINO_MARIDAJE {
+        int cod_vino PK,FK
+        smallint id_maridaje PK,FK
+    }
+    CLIENTE {
+        int id_cliente PK
+        enum tipo "socio, distribuidor, exportador"
+        varchar nombre "apellido y nombre o razón social"
+        enum tipo_doc "UK con nro_doc"
+        varchar nro_doc
+        varchar direccion
+        int id_localidad FK
+        date fecha_alta
+        numeric descuento "inicial según tipo (RN-06)"
+    }
+    DISTRIBUIDOR {
+        int id_cliente PK,FK
+        enum tipo "siempre distribuidor"
+        varchar zona_cobertura
+        varchar nro_habilitacion UK
+    }
+    EXPORTADOR {
+        int id_cliente PK,FK
+        enum tipo "siempre exportador"
+        varchar pais_destino
+    }
+    PERMISO_EXPORTACION {
+        varchar cod_permiso PK
+        int id_cliente FK "apunta a EXPORTADOR"
+        date fecha_emision
+        date fecha_vencimiento "posterior a emisión (RN-07)"
+    }
+    COMPROBANTE {
+        int nro_comprobante PK
+        date fecha
+        int id_cliente FK
+        int id_sala FK
+        numeric subtotal "derivado (trigger)"
+        numeric descuento "derivado (trigger)"
+        numeric total "derivado (RN-08)"
+    }
+    RENGLON_COMPROBANTE {
+        int nro_comprobante PK,FK
+        int cod_vino PK,FK
+        int cantidad
+        numeric precio_unitario "precio al momento de la venta"
+        numeric porcentaje_descuento
+        numeric subtotal
+    }
+    TRANSPORTISTA {
+        int cod_transporte PK
+        varchar razon_social
+        cuit cuit UK
+        varchar email
+        varchar telefono
+        varchar domicilio
+    }
+    TRANSPORTISTA_LOCALIDAD {
+        int cod_transporte PK,FK
+        int id_localidad PK,FK
+    }
+    INGRESO {
+        int cod_ingreso PK
+        date fecha
+        enum estado "RN-10"
+        int cod_transporte FK
+        cuit cuit_bodega FK
+    }
+    RENGLON_INGRESO {
+        int cod_ingreso PK,FK
+        int cod_vino PK,FK
+        int cantidad
+    }
+    TRANSFERENCIA {
+        int nro_transferencia PK
+        int id_sala FK
+        date fecha_confeccion "fecha actual, fija (RN-11)"
+        enum estado
+    }
+    RENGLON_TRANSFERENCIA {
+        int nro_transferencia PK,FK
+        int cod_vino PK,FK
+        int cantidad
+    }
+    STOCK_SALA {
+        int id_sala PK,FK
+        int cod_vino PK,FK
+        int cantidad "nunca negativo (RN-09)"
+    }
+    STOCK_DEPOSITO {
+        int cod_vino PK,FK
+        int cantidad "nunca negativo"
+    }
+    AUDITORIA_PRECIO {
+        bigint id_auditoria PK
+        int cod_vino FK
+        numeric precio_anterior
+        numeric precio_nuevo
+        timestamptz fecha_hora
+        varchar usuario
+    }
