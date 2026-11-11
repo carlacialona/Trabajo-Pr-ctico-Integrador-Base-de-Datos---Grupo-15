@@ -8,7 +8,7 @@ Sistema de gestión y distribución de una empresa vitivinícola. Trabajo Práct
 - **Front**: HTML + JavaScript, consume solo la API.
 - **Todo con un comando**: `docker compose up --build`.
 
-Trabajo individual: Carla Cialona (Grupo 15) · Versión en la nube: pendiente de despliegue · Informe: [`docs/informe_final.md`](docs/informe_final.md) (también en PDF: `docs/informe_final.pdf`) · Guía para la defensa: [`docs/GUIA_DEFENSA.md`](docs/GUIA_DEFENSA.md)
+Trabajo individual: Carla Cialona, legajo 8852 (Grupo 15) · **Versión en la nube: [front](https://bodegas-front-pxxx.onrender.com) · [API](https://bodegas-api-7s4s.onrender.com/docs)** (plan gratuito: el primer pedido puede tardar ~1 minuto) · Informe: [`docs/informe_final.md`](docs/informe_final.md) (también en PDF: `docs/informe_final.pdf`) · Guía para la defensa: [`docs/GUIA_DEFENSA.md`](docs/GUIA_DEFENSA.md)
 
 ## Requisitos
 

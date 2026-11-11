@@ -1,6 +1,6 @@
 # 8. Despliegue en la nube
 
-> **Estado**: esta guía deja todo preparado para desplegar, pero el despliegue en sí lo tiene que hacer el grupo con su propia cuenta (crear cuentas en un proveedor no se puede automatizar desde el repositorio). Al terminar, completar la URL pública en el `README.md` y las capturas en `docs/capturas/`.
+> **Estado**: desplegado el 10/11/2026 en Render. Front: https://bodegas-front-pxxx.onrender.com · API: https://bodegas-api-7s4s.onrender.com. Las capturas están en `docs/capturas/nube_*.png` y en la sección 8 del informe.
 
 ## 8.1 Elección del proveedor
 

@@ -7,8 +7,9 @@ subtitle: "Bases de Datos · Ingeniería en Sistemas · UTN Facultad Regional Sa
 | --- | --- |
 | **Grupo** | 15 |
 | **Integrante** | Carla Cialona (trabajo individual) |
+| **Legajo** | 8852 |
 | **Repositorio** | https://github.com/carlacialona/Trabajo-Pr-ctico-Integrador-Base-de-Datos---Grupo-15 |
-| **Versión en la nube** | Pendiente de despliegue (ver sección 8) |
+| **Versión en la nube** | Front: https://bodegas-front-pxxx.onrender.com · API: https://bodegas-api-7s4s.onrender.com (documentación en /docs) |
 
 # 1. Introducción y alcance
 
@@ -394,19 +395,50 @@ Cinco pantallas: catálogo con filtros y ficha, alta y edición de vino, nueva v
 
 # 8. Despliegue en la nube
 
-> **Estado: pendiente.** El despliegue requiere crear una cuenta en el proveedor y no está realizado al momento de redactar este informe. Esta sección describe la configuración prevista y lo ya verificado localmente. Al desplegar se completan la URL pública y las capturas de la venta sin stock en la nube y de la conexión rechazada.
+| Componente | Servicio en Render | URL |
+| --- | --- | --- |
+| Front | Static Site `bodegas-front` | https://bodegas-front-pxxx.onrender.com |
+| API | Web Service `bodegas-api` (Docker, `api/Dockerfile`) | https://bodegas-api-7s4s.onrender.com (salud: `/salud`, documentación: `/docs`) |
+| Base de datos | Render Postgres 16 `bodegas-db`, región Ohio, plan Free | sin URL pública de uso: solo la API, por la red interna, y una IP de administración |
 
-**Proveedor elegido: Render**, para la base (PostgreSQL), la API (Web Service) y el front (Static Site). Se comparó con Neon + Render y con un servidor propio con Docker Compose. Se eligió Render porque la API se conecta a la base por la **red interna** del proveedor y el acceso externo a la base se puede cerrar con reglas de IP. Limitación a tener en cuenta: según el changelog de Render, la base gratuita vence a los 30 días; si eso afecta la defensa, la alternativa es Neon para la base, cambiando solo la cadena de conexión.
+**Proveedor elegido: Render**, para los tres componentes. Se comparó con Neon + Render y con un servidor propio con Docker Compose (tabla completa en `docs/07_despliegue_nube.md`). Se eligió Render porque la API se conecta a la base por la **red interna** del proveedor y el acceso externo a la base se puede cerrar con reglas de IP. Limitaciones del plan gratuito: la base vence a los 30 días de creada (se creó el 10/11/2026) y la API se suspende tras 15 minutos sin tráfico; el primer pedido después tarda alrededor de un minuto. Si la base vence antes de la defensa, la alternativa es Neon, cambiando solo `DATABASE_URL`.
 
-**Seguridad prevista:**
+**Cómo se desplegó.**
 
-- La API usa `bodegas_api` y no el administrador.
-- Conexión cifrada (`sslmode=require`).
-- Puerto de la base cerrado a internet salvo la IP de administración.
-- Secretos solo en las variables del proveedor: el archivo `.env` no está en el repositorio ni en su historial.
-- CORS limitado a la URL del front.
+1. Se creó la base y, desde la máquina de administración, se aplicaron las migraciones 001 a 009 con `db/scripts/aplicar_migraciones.sh` usando el rol administrador del proveedor (que queda como propietario de los objetos).
+2. Se asignaron contraseñas generadas al azar a `bodegas_api` y `bodegas_lectura`; no están en el repositorio.
+3. Se ejecutó la carga masiva completa contra la base en la nube con el mismo script y la misma semilla: 149.972 comprobantes y 523.561 renglones en 411 s (más lento que en local por la latencia de red). Las 13 consultas de control dieron 0.
+4. Se publicó la API con `DATABASE_URL` apuntando a la URL **interna** con el rol `bodegas_api`, y el front con la URL pública de la API en `front/js/config.js`.
 
-**Backup y restauración (probado localmente).** Se generó un backup completo con `pg_dump --format=custom` (6,6 MB), se restauró en una base nueva con `pg_restore` y se compararon los conteos de las 30 tablas con `db/scripts/conteos.sql`: idénticos. Los mismos scripts (`db/scripts/backup.sh` y `restaurar.sh`) se usan contra la base en la nube.
+![Carga masiva en la nube: filas por tabla y consultas de control en 0](capturas/nube_carga_datos.png)
+
+![La API conectada con el rol bodegas_api](capturas/nube_salud.png)
+
+**Regla de negocio en la nube.** Desde el front publicado se intentó vender 9.999 botellas de un vino con 249 en la sala 1. La base rechazó la venta con RN-09 (SQLSTATE P0001, HTTP 409) y no quedó ningún dato a medias.
+
+![Venta sin stock en la nube: error RN-09](capturas/nube_venta_rn09.png)
+
+**Seguridad aplicada.**
+
+| Medida | Cómo se cumple | Evidencia |
+| --- | --- | --- |
+| La API no usa el administrador | `DATABASE_URL` con el rol `bodegas_api` (sin privilegios de propietario) | `/salud` muestra `"rol":"bodegas_api"` |
+| Base cerrada a internet | Regla de entrada de la base: solo la IP de administración (`/32`); la API usa la red interna y no se ve afectada | validador de Render y conexión rechazada desde otra red |
+| Conexión cifrada | Externa: `sslmode=require` (Render rechaza `sslmode=disable`). Interna: TLS con `DB_SSL=require` | configuración de la API |
+| Secretos fuera del repositorio | Contraseñas solo en las variables de entorno de Render; `.env` en `.gitignore` | historial del repositorio |
+| CORS | `CORS_ORIGIN` limitado a la URL del front | variables de la API |
+
+![Regla de entrada: la IP de administración está permitida](capturas/nube_ip_permitida.png)
+
+![Regla de entrada: otra IP queda rechazada](capturas/nube_ip_rechazada_validador.png)
+
+**Prueba de conexión rechazada.** Con el rol de solo lectura, la misma conexión responde desde la IP permitida y es cortada por el proveedor desde otra red:
+
+![Conexión desde la IP permitida](capturas/nube_psql_ip_permitida.png)
+
+![Conexión desde otra red: rechazada](capturas/nube_psql_rechazada_otra_red.png)
+
+**Backup y restauración.** Se generó un backup completo con `pg_dump --format=custom` (6,6 MB), se restauró en una base nueva con `pg_restore` y se compararon los conteos de las 30 tablas con `db/scripts/conteos.sql`: idénticos. La prueba se hizo con la base local, que tiene el mismo esquema y la misma carga (misma semilla) que la de la nube; los mismos scripts (`db/scripts/backup.sh` y `restaurar.sh`) funcionan contra la base en la nube con su URL externa.
 
 # 9. Conclusiones
 
