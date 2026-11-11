@@ -52,6 +52,21 @@ Resultado: ventas registradas = **1** (A), stock final = **0**.
 
 La API no hace `SELECT ... FOR UPDATE`: solo inserta el renglón. El trigger `trg_renglon_comprobante_antes` bloquea la fila de `stock_sala` con `FOR UPDATE` antes de validar el stock, así que la regla se cumple aunque alguien venda desde `psql` sin pasar por la API. Además el `CHECK (cantidad >= 0)` es una segunda barrera: aunque el trigger no existiera, un `UPDATE ... SET cantidad = cantidad - 1` sobre 0 fallaría.
 
+
+## Capturas de las sesiones psql
+
+Sesiones reales en dos terminales `psql` sobre la base cargada.
+
+![Escenario 1: sin bloqueo](../capturas/concurrencia_1_sin_bloqueo.png)
+
+![Escenario 2: B espera](../capturas/concurrencia_2a_for_update_esperando.png)
+
+![Escenario 2: B ve 0 y rechaza](../capturas/concurrencia_2b_for_update_rechazo.png)
+
+![Escenario 3: la venta de B espera al trigger](../capturas/concurrencia_3a_trigger_esperando.png)
+
+![Escenario 3: la venta de B falla con RN-09](../capturas/concurrencia_3b_trigger_rn09.png)
+
 ## Cómo reproducirlo a mano con dos terminales `psql`
 
 1. En ambas: `BEGIN;`

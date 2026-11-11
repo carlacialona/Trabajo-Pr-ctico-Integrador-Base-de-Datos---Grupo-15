@@ -94,7 +94,9 @@ curl "http://localhost:3000/vinos?q=%27%20OR%201%3D1%3B%20DROP%20TABLE%20vino%3B
 # {"datos":[],"pagina":1,"tamanio":20,"total":0}
 ```
 
-El valor `' OR 1=1; DROP TABLE vino; --` llega a la base como **el parámetro `$1`** de `v.nombre ILIKE '%' || $1 || '%'`: se busca un vino cuyo nombre contenga ese texto literal. No hay ninguno, la respuesta es una lista vacía y la tabla sigue existiendo. Si el SQL se armara concatenando (`"... ILIKE '%" + q + "%'"`), la comilla cerraría el texto y el resto se ejecutaría como SQL.
+El valor `' OR 1=1; DROP TABLE vino; --` llega a la base como **el parámetro `$1`** de `v.nombre ILIKE '%' || $1 || '%'`: se busca un vino cuyo nombre contenga ese texto literal. No hay ninguno, la respuesta es una lista vacía y la tabla sigue existiendo. ![Inyección SQL fallida](capturas/inyeccion_sql_fallida.png)
+
+Si el SQL se armara concatenando (`"... ILIKE '%" + q + "%'"`), la comilla cerraría el texto y el resto se ejecutaría como SQL.
 
 ## 7.1 Front
 

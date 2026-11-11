@@ -12,3 +12,6 @@ __pycache__/
 *.sql.gz
 *.dump
 backups/
+
+# Archivos de entrega (zip, informe en Word/PDF): se suben al campus, no al repo
+_entrega/
