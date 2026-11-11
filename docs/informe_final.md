@@ -33,7 +33,7 @@ El foco está en la **capa de datos**. El modelo está normalizado hasta tercera
 
 ## 2.1 Diagrama entidad-relación
 
-![Diagrama entidad-relación. En alta resolución: docs/der/der.svg y der.png; fuente editable: docs/der/der.mmd](der/der.png)
+![Diagrama entidad-relación. Para verlo ampliado: docs/der/der.pdf (vectorial) o der_alta_resolucion.png; fuente editable: docs/der/der.mmd](der/der.png)
 
 ## 2.2 Cómo se identificaron las entidades
 

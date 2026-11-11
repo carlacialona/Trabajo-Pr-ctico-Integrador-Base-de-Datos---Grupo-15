@@ -109,7 +109,7 @@ python db/seed/cargar_datos.py --forzar --benchmark --reporte docs/informes/etap
     ├── 01_modelo_de_datos.md … 07_despliegue_nube.md
     ├── diccionario_datos.md
     ├── GUIA_DEFENSA.md
-    ├── der/                     DER (der.mmd fuente, der.svg, der.png)
+    ├── der/                     DER (der.mmd fuente; der.pdf vectorial para ampliar; der.svg, der.png)
     ├── informes/                reportes generados (carga, índices, planes, concurrencia)
     └── capturas/
 ```
